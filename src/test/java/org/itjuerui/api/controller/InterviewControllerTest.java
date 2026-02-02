@@ -7,20 +7,31 @@ import org.itjuerui.api.dto.SessionDetailResponse;
 import org.itjuerui.api.dto.SessionListResponse;
 import org.itjuerui.api.dto.TurnRequest;
 import org.itjuerui.common.dto.ApiResponse;
+import org.itjuerui.common.config.ReportAiProperties;
 import org.itjuerui.domain.interview.entity.InterviewSession;
+import org.itjuerui.domain.interview.enums.InterviewStage;
 import org.itjuerui.domain.interview.enums.SessionStatus;
 import org.itjuerui.domain.interview.enums.TurnRole;
+import org.itjuerui.domain.report.entity.Report;
+import org.itjuerui.domain.report.entity.StageMiniReport;
+import org.itjuerui.infra.llm.LlmService;
+import org.itjuerui.infra.repo.StageMiniReportMapper;
+import org.itjuerui.infra.llm.dto.Message;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -38,6 +49,14 @@ class InterviewControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @MockBean
+    private LlmService llmService;
+
+    @Autowired
+    private ReportAiProperties reportAiProperties;
+
+    @Autowired
+    private StageMiniReportMapper stageMiniReportMapper;
     @Test
     void testCreateSession_Success() throws Exception {
         InterviewCreateRequest request = new InterviewCreateRequest();
@@ -57,6 +76,74 @@ class InterviewControllerTest {
                 new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {});
         assertNotNull(response.getData());
         assertTrue(response.getData() > 0);
+    }
+
+
+    @Test
+    void testCreateSession_StatusCreated() throws Exception {
+        InterviewCreateRequest request = new InterviewCreateRequest();
+        request.setResumeId(1L);
+        request.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(request)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {});
+        Long sessionId = createResponse.getData();
+
+        MvcResult detailResult = mockMvc.perform(get("/api/interview/sessions/{id}", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andReturn();
+
+        String detailBody = detailResult.getResponse().getContentAsString();
+        ApiResponse<SessionDetailResponse> detailResponse = JSON.parseObject(
+                detailBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<SessionDetailResponse>>() {}
+        );
+
+        assertEquals(SessionStatus.CREATED, detailResponse.getData().getSession().getStatus());
+        assertNull(detailResponse.getData().getSession().getStartedAt());
+        assertNull(detailResponse.getData().getSession().getEndedAt());
+    }
+
+
+    @Test
+    void testCreateSession_DefaultStagePlan() throws Exception {
+        InterviewCreateRequest request = new InterviewCreateRequest();
+        request.setResumeId(1L);
+        request.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(request)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {});
+        Long sessionId = createResponse.getData();
+
+        MvcResult detailResult = mockMvc.perform(get("/api/interview/sessions/{id}", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andReturn();
+
+        String detailBody = detailResult.getResponse().getContentAsString();
+        ApiResponse<SessionDetailResponse> detailResponse = JSON.parseObject(
+                detailBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<SessionDetailResponse>>() {}
+        );
+
+        assertEquals(InterviewStage.BASICS, detailResponse.getData().getSession().getCurrentStage());
+        assertNotNull(detailResponse.getData().getSession().getStagePlanJson());
+        assertFalse(detailResponse.getData().getSession().getStagePlanJson().isEmpty());
     }
 
     @Test
@@ -242,6 +329,7 @@ class InterviewControllerTest {
 
     @Test
     void testGetNextQuestion_FirstCall() throws Exception {
+        Mockito.when(llmService.chat(anyList())).thenReturn("请简要介绍你对 Spring Boot 的理解。");
         // 先创建会话
         InterviewCreateRequest createRequest = new InterviewCreateRequest();
         createRequest.setResumeId(1L);
@@ -276,7 +364,7 @@ class InterviewControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.question").exists())
-                .andExpect(jsonPath("$.data.turnNumber").value(1))
+                .andExpect(jsonPath("$.data.turnId").exists())
                 .andReturn();
 
         String nextQuestionBody = nextQuestionResult.getResponse().getContentAsString();
@@ -287,7 +375,7 @@ class InterviewControllerTest {
         assertNotNull(nextQuestionResponse.getData());
         assertNotNull(nextQuestionResponse.getData().getQuestion());
         assertFalse(nextQuestionResponse.getData().getQuestion().isEmpty());
-        assertEquals(1, nextQuestionResponse.getData().getTurnNumber());
+        assertNotNull(nextQuestionResponse.getData().getTurnId());
 
         // 验证调用后：状态变为 RUNNING，turns 数+1，最新 turn 为 INTERVIEWER
         MvcResult detailResult = mockMvc.perform(get("/api/interview/sessions/{id}", sessionId))
@@ -307,8 +395,166 @@ class InterviewControllerTest {
         assertFalse(detailResponse.getData().getTurns().get(0).getContentText().isEmpty());
     }
 
+
+    @Test
+    void testEndSession_UpdatesStatus() throws Exception {
+        InterviewCreateRequest createRequest = new InterviewCreateRequest();
+        createRequest.setResumeId(1L);
+        createRequest.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(createRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(
+                createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
+        );
+        Long sessionId = createResponse.getData();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").value(sessionId));
+
+        MvcResult detailResult = mockMvc.perform(get("/api/interview/sessions/{id}", sessionId))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String detailBody = detailResult.getResponse().getContentAsString();
+        ApiResponse<SessionDetailResponse> detailResponse = JSON.parseObject(
+                detailBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<SessionDetailResponse>>() {}
+        );
+
+        assertEquals(SessionStatus.ENDED, detailResponse.getData().getSession().getStatus());
+        assertNotNull(detailResponse.getData().getSession().getEndedAt());
+    }
+
+
+    @Test
+    void testAdvanceStage_UpdatesCurrentStage() throws Exception {
+        InterviewCreateRequest createRequest = new InterviewCreateRequest();
+        createRequest.setResumeId(1L);
+        createRequest.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(createRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(
+                createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
+        );
+        Long sessionId = createResponse.getData();
+
+        MvcResult advanceResult = mockMvc.perform(post("/api/interview/sessions/{id}/stage/next", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andReturn();
+
+        String advanceBody = advanceResult.getResponse().getContentAsString();
+        ApiResponse<InterviewSession> advanceResponse = JSON.parseObject(
+                advanceBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<InterviewSession>>() {}
+        );
+
+        assertEquals(InterviewStage.PROJECT, advanceResponse.getData().getCurrentStage());
+    }
+
+
+    @Test
+    void testAdvanceStage_GeneratesStageMiniReport() throws Exception {
+        Long sessionId = createSessionWithStageTurns();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/stage/next", sessionId))
+                .andExpect(status().isOk());
+
+        StageMiniReport report = stageMiniReportMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<StageMiniReport>()
+                        .eq(StageMiniReport::getSessionId, sessionId)
+                        .eq(StageMiniReport::getStageCode, InterviewStage.BASICS.name())
+        );
+        assertNotNull(report);
+        assertNotNull(report.getSummary());
+    }
+
+
+    @Test
+    void testStageMiniReport_OnlyCountsStageTurns() throws Exception {
+        Long sessionId = createSessionWithStageTurns();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/stage/next", sessionId))
+                .andExpect(status().isOk());
+
+        TurnRequest candidateProject = new TurnRequest();
+        candidateProject.setContent("我在项目阶段负责服务拆分与性能优化。");
+        candidateProject.setRole("CANDIDATE");
+        mockMvc.perform(post("/api/interview/sessions/{id}/turns", sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(candidateProject)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/stage/next", sessionId))
+                .andExpect(status().isOk());
+
+        StageMiniReport basicsReport = stageMiniReportMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<StageMiniReport>()
+                        .eq(StageMiniReport::getSessionId, sessionId)
+                        .eq(StageMiniReport::getStageCode, InterviewStage.BASICS.name())
+        );
+        StageMiniReport projectReport = stageMiniReportMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<StageMiniReport>()
+                        .eq(StageMiniReport::getSessionId, sessionId)
+                        .eq(StageMiniReport::getStageCode, InterviewStage.PROJECT.name())
+        );
+
+        assertNotNull(basicsReport);
+        assertNotNull(projectReport);
+        assertTrue(basicsReport.getSummary().contains("回答1次"));
+        assertTrue(projectReport.getSummary().contains("回答1次"));
+    }
+
+
+    @Test
+    void testNextQuestion_WhenSessionEnded_ReturnsBadRequest() throws Exception {
+        Mockito.when(llmService.chat(anyList())).thenReturn("请介绍一次技术难题的解决过程。");
+
+        InterviewCreateRequest createRequest = new InterviewCreateRequest();
+        createRequest.setResumeId(1L);
+        createRequest.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(createRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(
+                createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
+        );
+        Long sessionId = createResponse.getData();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/next-question", sessionId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").exists());
+    }
+
     @Test
     void testGetNextQuestion_MultipleCalls() throws Exception {
+        Mockito.when(llmService.chat(anyList())).thenReturn("请解释 Java 中的 JVM 内存模型。", "说说你对 GC 调优的理解。");
         // 先创建会话
         InterviewCreateRequest createRequest = new InterviewCreateRequest();
         createRequest.setResumeId(1L);
@@ -329,7 +575,7 @@ class InterviewControllerTest {
         mockMvc.perform(post("/api/interview/sessions/{id}/next-question", sessionId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data.turnNumber").value(1));
+                .andExpect(jsonPath("$.data.turnId").exists());
 
         // 验证第一次调用后 turns 数为 1
         MvcResult detailResult1 = mockMvc.perform(get("/api/interview/sessions/{id}", sessionId))
@@ -347,7 +593,7 @@ class InterviewControllerTest {
         mockMvc.perform(post("/api/interview/sessions/{id}/next-question", sessionId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data.turnNumber").value(2));
+                .andExpect(jsonPath("$.data.turnId").exists());
 
         // 验证第二次调用后 turns 数+1，最新 turn 为 INTERVIEWER
         MvcResult detailResult2 = mockMvc.perform(get("/api/interview/sessions/{id}", sessionId))
@@ -522,5 +768,412 @@ class InterviewControllerTest {
                 new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
         );
         return response.getData();
+    }
+
+    @Test
+    void testGetNextQuestion_ReturnsQuestionAndTurnId() throws Exception {
+        Mockito.when(llmService.chat(anyList())).thenReturn("请描述你在项目中解决过的性能瓶颈。");
+
+        InterviewCreateRequest createRequest = new InterviewCreateRequest();
+        createRequest.setResumeId(1L);
+        createRequest.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(createRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(
+                createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
+        );
+        Long sessionId = createResponse.getData();
+
+        MvcResult nextQuestionResult = mockMvc.perform(post("/api/interview/sessions/{id}/next-question", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.question").exists())
+                .andExpect(jsonPath("$.data.turnId").exists())
+                .andReturn();
+
+        String nextQuestionBody = nextQuestionResult.getResponse().getContentAsString();
+        ApiResponse<NextQuestionResponse> nextQuestionResponse = JSON.parseObject(
+                nextQuestionBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<NextQuestionResponse>>() {}
+        );
+
+        assertNotNull(nextQuestionResponse.getData());
+        assertNotNull(nextQuestionResponse.getData().getQuestion());
+        assertFalse(nextQuestionResponse.getData().getQuestion().isEmpty());
+        assertNotNull(nextQuestionResponse.getData().getTurnId());
+        assertTrue(nextQuestionResponse.getData().getTurnId() > 0);
+    }
+
+
+    @Test
+    void testNextQuestion_PromptIncludesStageInfo() throws Exception {
+        Mockito.when(llmService.chat(anyList())).thenReturn("请介绍你的基础能力。");
+        Mockito.clearInvocations(llmService);
+
+        InterviewCreateRequest createRequest = new InterviewCreateRequest();
+        createRequest.setResumeId(1L);
+        createRequest.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(createRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(
+                createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
+        );
+        Long sessionId = createResponse.getData();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/next-question", sessionId))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<List<Message>> captor = ArgumentCaptor.forClass(List.class);
+        Mockito.verify(llmService, Mockito.atLeastOnce()).chat(captor.capture());
+        List<Message> messages = captor.getAllValues().get(0);
+        StringBuilder combined = new StringBuilder();
+        for (Message message : messages) {
+            combined.append(message.getContent());
+        }
+        assertTrue(combined.toString().contains("BASICS"));
+    }
+
+
+    @Test
+    void testGetNextQuestionStream_ReturnsChunksAndDone() throws Exception {
+        Mockito.when(llmService.chat(anyList())).thenReturn("请分享一次你解决线上故障的经历。");
+
+        InterviewCreateRequest createRequest = new InterviewCreateRequest();
+        createRequest.setResumeId(1L);
+        createRequest.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(createRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(
+                createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
+        );
+        Long sessionId = createResponse.getData();
+
+        MvcResult streamResult = mockMvc.perform(get("/api/interview/sessions/{id}/next-question/stream", sessionId))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        MvcResult asyncResult = mockMvc.perform(asyncDispatch(streamResult))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+                .andReturn();
+
+        String content = asyncResult.getResponse().getContentAsString();
+        assertTrue(content.contains("event: chunk"));
+        assertTrue(content.contains("event: done"));
+        assertTrue(content.contains("\"turnId\""));
+    }
+
+
+    @Test
+    void testGetNextQuestionStream_WhenSessionEnded_ReturnsErrorEvent() throws Exception {
+        InterviewCreateRequest createRequest = new InterviewCreateRequest();
+        createRequest.setResumeId(1L);
+        createRequest.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(createRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(
+                createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
+        );
+        Long sessionId = createResponse.getData();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                .andExpect(status().isOk());
+
+        MvcResult streamResult = mockMvc.perform(get("/api/interview/sessions/{id}/next-question/stream", sessionId))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        MvcResult asyncResult = mockMvc.perform(asyncDispatch(streamResult))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+                .andReturn();
+
+        String content = asyncResult.getResponse().getContentAsString();
+        assertTrue(content.contains("event: error"));
+    }
+
+
+    @Test
+    void testGenerateReport_WhenSessionEnded_Success() throws Exception {
+        Long sessionId = createSessionWithTurns();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                .andExpect(status().isOk());
+
+        MvcResult reportResult = mockMvc.perform(post("/api/interview/sessions/{id}/report", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.overallScore").exists())
+                .andExpect(jsonPath("$.data.summary").exists())
+                .andReturn();
+
+        String reportBody = reportResult.getResponse().getContentAsString();
+        ApiResponse<Report> reportResponse = JSON.parseObject(
+                reportBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Report>>() {}
+        );
+
+        Report report = reportResponse.getData();
+        assertNotNull(report);
+        assertNotNull(report.getOverallScore());
+        assertTrue(report.getOverallScore() >= 0 && report.getOverallScore() <= 100);
+        assertNotNull(report.getSummary());
+        assertFalse(report.getSummary().isEmpty());
+    }
+
+
+    @Test
+    void testGenerateReport_IncludesStageMiniReports() throws Exception {
+        Long sessionId = createSessionWithStageTurns();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/stage/next", sessionId))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                .andExpect(status().isOk());
+
+        MvcResult reportResult = mockMvc.perform(post("/api/interview/sessions/{id}/report", sessionId))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String reportBody = reportResult.getResponse().getContentAsString();
+        ApiResponse<Report> reportResponse = JSON.parseObject(
+                reportBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Report>>() {}
+        );
+
+        Report report = reportResponse.getData();
+        assertNotNull(report.getStageReports());
+        assertFalse(report.getStageReports().isEmpty());
+        assertTrue(report.getSummary().contains("分阶段评价"));
+    }
+
+
+    @Test
+    void testGenerateReport_WhenSessionNotEnded_Fails() throws Exception {
+        Long sessionId = createSessionWithTurns();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/report", sessionId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").exists());
+    }
+
+
+    @Test
+    void testGetReport_AfterGenerate() throws Exception {
+        Long sessionId = createSessionWithTurns();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/report", sessionId))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/interview/sessions/{id}/report", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.summary").exists())
+                .andExpect(jsonPath("$.data.overallScore").exists());
+    }
+
+
+    @Test
+    void testGenerateReport_WhenRepeated_UpdatesUpdatedAt() throws Exception {
+        Long sessionId = createSessionWithTurns();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                .andExpect(status().isOk());
+
+        MvcResult firstResult = mockMvc.perform(post("/api/interview/sessions/{id}/report", sessionId))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String firstBody = firstResult.getResponse().getContentAsString();
+        ApiResponse<Report> firstResponse = JSON.parseObject(
+                firstBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Report>>() {}
+        );
+        Report firstReport = firstResponse.getData();
+
+        Thread.sleep(10L);
+
+        MvcResult secondResult = mockMvc.perform(post("/api/interview/sessions/{id}/report", sessionId))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String secondBody = secondResult.getResponse().getContentAsString();
+        ApiResponse<Report> secondResponse = JSON.parseObject(
+                secondBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Report>>() {}
+        );
+        Report secondReport = secondResponse.getData();
+
+        assertNotNull(firstReport.getUpdatedAt());
+        assertNotNull(secondReport.getUpdatedAt());
+        assertTrue(secondReport.getUpdatedAt().isAfter(firstReport.getUpdatedAt())
+                || secondReport.getUpdatedAt().isEqual(firstReport.getUpdatedAt()));
+    }
+
+
+    @Test
+    void testGenerateReport_WhenAiEnabled_UsesAiSummary() throws Exception {
+        Long sessionId = createSessionWithTurns();
+        reportAiProperties.setEnabled(true);
+
+        try {
+            String aiJson = "{\"summary\":\"AI 总评\",\"strengths\":[\"表达清晰\"],"
+                    + "\"weaknesses\":[\"细节不足\"],\"suggestions\":[\"补充案例\"]}";
+            Mockito.when(llmService.chat(anyList())).thenReturn(aiJson);
+
+            mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                    .andExpect(status().isOk());
+
+            MvcResult reportResult = mockMvc.perform(post("/api/interview/sessions/{id}/report", sessionId))
+                    .andExpect(status().isOk())
+                    .andReturn();
+
+            String reportBody = reportResult.getResponse().getContentAsString();
+            ApiResponse<Report> reportResponse = JSON.parseObject(
+                    reportBody,
+                    new com.alibaba.fastjson2.TypeReference<ApiResponse<Report>>() {}
+            );
+
+            Report report = reportResponse.getData();
+            assertEquals("AI 总评", report.getSummary());
+            assertNotNull(report.getAiEnabled());
+            assertTrue(report.getAiEnabled());
+        } finally {
+            reportAiProperties.setEnabled(false);
+        }
+    }
+
+
+    @Test
+    void testGenerateReport_WhenAiEnabledButFails_FallbackToRule() throws Exception {
+        Long sessionId = createSessionWithTurns();
+        reportAiProperties.setEnabled(true);
+
+        try {
+            Mockito.when(llmService.chat(anyList())).thenThrow(new RuntimeException("mock error"));
+
+            mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                    .andExpect(status().isOk());
+
+            MvcResult reportResult = mockMvc.perform(post("/api/interview/sessions/{id}/report", sessionId))
+                    .andExpect(status().isOk())
+                    .andReturn();
+
+            String reportBody = reportResult.getResponse().getContentAsString();
+            ApiResponse<Report> reportResponse = JSON.parseObject(
+                    reportBody,
+                    new com.alibaba.fastjson2.TypeReference<ApiResponse<Report>>() {}
+            );
+
+            Report report = reportResponse.getData();
+            assertNotNull(report.getSummary());
+            assertFalse(report.getSummary().isEmpty());
+            assertFalse("AI 总评".equals(report.getSummary()));
+            assertNotNull(report.getAiEnabled());
+            assertFalse(report.getAiEnabled());
+        } finally {
+            reportAiProperties.setEnabled(false);
+        }
+    }
+
+
+    private Long createSessionWithTurns() throws Exception {
+        InterviewCreateRequest createRequest = new InterviewCreateRequest();
+        createRequest.setResumeId(1L);
+        createRequest.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(createRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(
+                createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
+        );
+        Long sessionId = createResponse.getData();
+
+        TurnRequest interviewer = new TurnRequest();
+        interviewer.setContent("请介绍一下你最熟悉的后端项目。");
+        interviewer.setRole("INTERVIEWER");
+        mockMvc.perform(post("/api/interview/sessions/{id}/turns", sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(interviewer)))
+                .andExpect(status().isOk());
+
+        TurnRequest candidate = new TurnRequest();
+        candidate.setContent("我负责过订单系统的性能优化，主要进行了索引调整和缓存策略优化。");
+        candidate.setRole("CANDIDATE");
+        mockMvc.perform(post("/api/interview/sessions/{id}/turns", sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(candidate)))
+                .andExpect(status().isOk());
+
+        return sessionId;
+    }
+
+
+    private Long createSessionWithStageTurns() throws Exception {
+        InterviewCreateRequest createRequest = new InterviewCreateRequest();
+        createRequest.setResumeId(1L);
+        createRequest.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(createRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(
+                createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
+        );
+        Long sessionId = createResponse.getData();
+
+        TurnRequest candidate = new TurnRequest();
+        candidate.setContent("我熟悉Java基础与常见集合框架。");
+        candidate.setRole("CANDIDATE");
+        mockMvc.perform(post("/api/interview/sessions/{id}/turns", sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(candidate)))
+                .andExpect(status().isOk());
+
+        return sessionId;
     }
 }

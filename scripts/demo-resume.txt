@@ -1,0 +1,7 @@
+张三
+Java 后端工程师（校招）
+
+技能栈：Java 17，Spring Boot，MyBatis，MySQL，Redis，Docker
+项目经历：
+1) 校园项目管理系统：负责后端 API 设计与性能优化
+2) 订单中心：完成订单流转与库存扣减服务

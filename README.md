@@ -56,6 +56,24 @@ src/main/java/org/itjuerui/
 
 ## 快速开始
 
+### 本地一键启动（推荐）
+
+后端使用 dev profile（H2 内存库），前端使用 Vite 开发服务器，一条命令即可同时启动。
+
+```powershell
+# Windows PowerShell
+./scripts/dev.ps1
+```
+
+```bash
+# macOS / Linux
+./scripts/dev.sh
+```
+
+启动完成后：
+- 后端：`http://localhost:8080`
+- 前端：`http://localhost:5173`
+
 ### 方式一：使用开发环境 Profile（推荐，一键启动）
 
 开发环境使用 H2 内存数据库，无需安装 MySQL、Redis 等外部服务，适合快速启动和开发。
@@ -118,6 +136,45 @@ java -jar target/interview-system-0.0.1-SNAPSHOT.jar
 - `POST /api/interviews/{sessionId}/turn` - 提交对话
 - `GET /api/reports/{sessionId}` - 获取报告
 
+## 前端启动（frontend）
+
+前端位于 `frontend/`，默认通过 Vite 代理 `/api` 到 `http://localhost:8080`。
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+更多前端说明见：`frontend/README.md`。
+
+## 完整演示流程（从 0 到报告）
+
+### 一键演示脚本（推荐）
+
+```powershell
+# Windows PowerShell
+./scripts/demo.ps1
+```
+
+```bash
+# macOS / Linux
+./scripts/demo.sh
+```
+
+脚本会自动完成：创建简历 → 创建会话 → 下一问 → 发送回答 → 推进阶段 → 结束 → 生成报告。
+
+### 手动演示步骤
+
+1) 创建会话（需先上传简历获得 resumeId）  
+2) 触发下一问（支持 SSE）  
+3) 发送候选人回答  
+4) 推进阶段  
+5) 结束会话  
+6) 生成报告  
+
+具体 curl 示例请参考 `scripts/demo.sh` / `scripts/demo.ps1`。
+
 ## 核心功能
 
 ### 1. 简历管理
@@ -155,6 +212,21 @@ java -jar target/interview-system-0.0.1-SNAPSHOT.jar
 2. **Redis 配置**：可选，确保 Redis 已启动（用于会话状态管理）
 3. **LLM API Key**：可选，需要在配置文件中设置有效的 API Key
 4. **MinIO**：如果使用文件存储，需要先启动 MinIO 服务
+
+## 常见问题（FAQ）
+
+1) **端口占用**  
+   - 后端默认 `8080`，前端默认 `5173`。如需修改，请调整启动参数或前端 `vite.config.ts` 中的端口。
+
+2) **CORS / SSE 无法连接**  
+   - 前端开发模式下通过 Vite 代理 `/api` 到后端，确保前端请求走同源路径。
+   - SSE 必须保持长连接，建议在本地开发中使用 `http://localhost:5173` 访问前端。
+
+3) **H2 控制台访问**  
+   - dev profile 下访问 `http://localhost:8080/h2-console`，数据为内存态，重启即失效。
+
+4) **LLM 未配置**  
+   - 系统仍可启动并完成面试流程，相关 AI 能力会降级为规则/占位实现或返回明确的错误提示。
 
 ## 后续开发
 
