@@ -10,6 +10,7 @@ import org.itjuerui.api.dto.SessionListResponse;
 import org.itjuerui.api.dto.TurnRequest;
 import org.itjuerui.common.dto.ApiResponse;
 import org.itjuerui.service.InterviewService;
+import org.itjuerui.service.ReportService;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -23,6 +24,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class InterviewController {
 
     private final InterviewService interviewService;
+    private final ReportService reportService;
 
     /**
      * 创建面试会话
@@ -101,6 +103,22 @@ public class InterviewController {
     public ApiResponse<Long> endSession(@PathVariable("id") Long sessionId) {
         Long endedSessionId = interviewService.endSession(sessionId);
         return ApiResponse.success(endedSessionId);
+    }
+
+    /**
+     * 生成面试报告
+     */
+    @PostMapping("/sessions/{id}/report")
+    public ApiResponse<?> generateReport(@PathVariable("id") Long sessionId) {
+        return ApiResponse.success(reportService.generateReport(sessionId));
+    }
+
+    /**
+     * 查询面试报告
+     */
+    @GetMapping("/sessions/{id}/report")
+    public ApiResponse<?> getReport(@PathVariable("id") Long sessionId) {
+        return ApiResponse.success(reportService.getReport(sessionId));
     }
 
     // ========== 以下为原有接口，保留兼容性 ==========

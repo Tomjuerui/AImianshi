@@ -2,7 +2,7 @@
 
 ## 测试结果
 
-✅ **所有测试通过**: 13 个测试用例，0 失败，0 错误
+✅ **所有测试通过**: 17 个测试用例，0 失败，0 错误
 
 ## 本地验证步骤
 
@@ -184,6 +184,34 @@ curl -X POST http://localhost:8080/api/interview/sessions/1/end | jq
 curl -X GET http://localhost:8080/api/interview/sessions/1 | jq '.data.session'
 ```
 
+### 8. 生成与查询面试报告
+
+```bash
+# 前置：会话已结束
+curl -X POST http://localhost:8080/api/interview/sessions/1/report | jq
+
+curl -X GET http://localhost:8080/api/interview/sessions/1/report | jq
+```
+
+**预期响应**:
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "id": 1,
+    "sessionId": 1,
+    "overallScore": 78,
+    "summary": "候选人共回答2次，平均回答长度约36字，综合评分为78分。",
+    "strengths": "[\"回答内容较为充分，信息量充足\"]",
+    "weaknesses": "[\"部分回答缺少结构化表达\"]",
+    "suggestions": "[\"保持回答的清晰结构，并突出关键技术点\",\"结合具体项目经验举例，增强说服力\"]",
+    "createdAt": "2026-02-01T21:14:03.670287",
+    "updatedAt": "2026-02-01T21:20:03.670287"
+  }
+}
+```
+
 ## 参数校验测试
 
 ### 测试 1: 创建会话时缺少必填字段
@@ -293,6 +321,11 @@ echo ""
 
 echo "=== 7. 结束会话 ==="
 curl -s -X POST ${BASE_URL}/api/interview/sessions/${SESSION_ID}/end | jq
+echo ""
+
+echo "=== 8. 生成并查询面试报告 ==="
+curl -s -X POST ${BASE_URL}/api/interview/sessions/${SESSION_ID}/report | jq
+curl -s -X GET ${BASE_URL}/api/interview/sessions/${SESSION_ID}/report | jq
 ```
 
 ## 运行测试
@@ -302,7 +335,7 @@ cd aimian
 mvn test -Dtest=InterviewControllerTest
 ```
 
-**预期输出**: `Tests run: 13, Failures: 0, Errors: 0, Skipped: 0`
+**预期输出**: `Tests run: 17, Failures: 0, Errors: 0, Skipped: 0`
 
 ## 修改点说明
 
@@ -320,7 +353,8 @@ mvn test -Dtest=InterviewControllerTest
 3. ✅ **查询详情**: `GET /api/interview/sessions/{id}`
 4. ✅ **参数校验**: 所有接口都有完整的参数校验
 5. ✅ **错误处理**: 统一的错误响应格式
-6. ✅ **集成测试**: 13 个测试用例全部通过
+6. ✅ **集成测试**: 17 个测试用例全部通过
 7. ✅ **自动追问**: `POST /api/interview/sessions/{id}/next-question`
 8. ✅ **自动追问（SSE）**: `GET /api/interview/sessions/{id}/next-question/stream`
 9. ✅ **结束会话**: `POST /api/interview/sessions/{id}/end`
+10. ✅ **生成/查询报告**: `POST /api/interview/sessions/{id}/report` / `GET /api/interview/sessions/{id}/report`
