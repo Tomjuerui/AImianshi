@@ -2,7 +2,7 @@
 
 ## 测试结果
 
-✅ **所有测试通过**: 17 个测试用例，0 失败，0 错误
+✅ **所有测试通过**: 19 个测试用例，0 失败，0 错误
 
 ## 本地验证步骤
 
@@ -212,6 +212,28 @@ curl -X GET http://localhost:8080/api/interview/sessions/1/report | jq
 }
 ```
 
+### 9. 开启 AI 报告润色（可选）
+
+在 `application-dev.properties` 或 `application.properties` 中开启：
+```properties
+report.ai.enabled=true
+```
+
+**示例响应**（summary 与建议更自然，分数保持规则版不变）:
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "overallScore": 78,
+    "summary": "候选人回答较为流畅，能结合项目经验给出要点，但仍可补充更多细节。",
+    "strengths": "[\"表达清晰，逻辑完整\",\"回答覆盖关键技术点\"]",
+    "weaknesses": "[\"部分回答缺少具体量化指标\"]",
+    "suggestions": "[\"补充具体优化数据，增强说服力\",\"回答时突出核心技术选型理由\"]"
+  }
+}
+```
+
 ## 参数校验测试
 
 ### 测试 1: 创建会话时缺少必填字段
@@ -335,7 +357,7 @@ cd aimian
 mvn test -Dtest=InterviewControllerTest
 ```
 
-**预期输出**: `Tests run: 17, Failures: 0, Errors: 0, Skipped: 0`
+**预期输出**: `Tests run: 19, Failures: 0, Errors: 0, Skipped: 0`
 
 ## 修改点说明
 
@@ -353,7 +375,7 @@ mvn test -Dtest=InterviewControllerTest
 3. ✅ **查询详情**: `GET /api/interview/sessions/{id}`
 4. ✅ **参数校验**: 所有接口都有完整的参数校验
 5. ✅ **错误处理**: 统一的错误响应格式
-6. ✅ **集成测试**: 17 个测试用例全部通过
+6. ✅ **集成测试**: 19 个测试用例全部通过
 7. ✅ **自动追问**: `POST /api/interview/sessions/{id}/next-question`
 8. ✅ **自动追问（SSE）**: `GET /api/interview/sessions/{id}/next-question/stream`
 9. ✅ **结束会话**: `POST /api/interview/sessions/{id}/end`

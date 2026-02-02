@@ -7,6 +7,7 @@ import org.itjuerui.api.dto.SessionDetailResponse;
 import org.itjuerui.api.dto.SessionListResponse;
 import org.itjuerui.api.dto.TurnRequest;
 import org.itjuerui.common.dto.ApiResponse;
+import org.itjuerui.common.config.ReportAiProperties;
 import org.itjuerui.domain.interview.entity.InterviewSession;
 import org.itjuerui.domain.interview.enums.SessionStatus;
 import org.itjuerui.domain.interview.enums.TurnRole;
@@ -45,6 +46,9 @@ class InterviewControllerTest {
 
     @MockBean
     private LlmService llmService;
+
+    @Autowired
+    private ReportAiProperties reportAiProperties;
 
     @Test
     void testCreateSession_Success() throws Exception {
@@ -846,6 +850,72 @@ class InterviewControllerTest {
         assertNotNull(secondReport.getUpdatedAt());
         assertTrue(secondReport.getUpdatedAt().isAfter(firstReport.getUpdatedAt())
                 || secondReport.getUpdatedAt().isEqual(firstReport.getUpdatedAt()));
+    }
+
+
+    @Test
+    void testGenerateReport_WhenAiEnabled_UsesAiSummary() throws Exception {
+        Long sessionId = createSessionWithTurns();
+        reportAiProperties.setEnabled(true);
+
+        try {
+            String aiJson = "{\"summary\":\"AI 总评\",\"strengths\":[\"表达清晰\"],"
+                    + "\"weaknesses\":[\"细节不足\"],\"suggestions\":[\"补充案例\"]}";
+            Mockito.when(llmService.chat(anyList())).thenReturn(aiJson);
+
+            mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                    .andExpect(status().isOk());
+
+            MvcResult reportResult = mockMvc.perform(post("/api/interview/sessions/{id}/report", sessionId))
+                    .andExpect(status().isOk())
+                    .andReturn();
+
+            String reportBody = reportResult.getResponse().getContentAsString();
+            ApiResponse<Report> reportResponse = JSON.parseObject(
+                    reportBody,
+                    new com.alibaba.fastjson2.TypeReference<ApiResponse<Report>>() {}
+            );
+
+            Report report = reportResponse.getData();
+            assertEquals("AI 总评", report.getSummary());
+            assertNotNull(report.getAiEnabled());
+            assertTrue(report.getAiEnabled());
+        } finally {
+            reportAiProperties.setEnabled(false);
+        }
+    }
+
+
+    @Test
+    void testGenerateReport_WhenAiEnabledButFails_FallbackToRule() throws Exception {
+        Long sessionId = createSessionWithTurns();
+        reportAiProperties.setEnabled(true);
+
+        try {
+            Mockito.when(llmService.chat(anyList())).thenThrow(new RuntimeException("mock error"));
+
+            mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                    .andExpect(status().isOk());
+
+            MvcResult reportResult = mockMvc.perform(post("/api/interview/sessions/{id}/report", sessionId))
+                    .andExpect(status().isOk())
+                    .andReturn();
+
+            String reportBody = reportResult.getResponse().getContentAsString();
+            ApiResponse<Report> reportResponse = JSON.parseObject(
+                    reportBody,
+                    new com.alibaba.fastjson2.TypeReference<ApiResponse<Report>>() {}
+            );
+
+            Report report = reportResponse.getData();
+            assertNotNull(report.getSummary());
+            assertFalse(report.getSummary().isEmpty());
+            assertFalse("AI 总评".equals(report.getSummary()));
+            assertNotNull(report.getAiEnabled());
+            assertFalse(report.getAiEnabled());
+        } finally {
+            reportAiProperties.setEnabled(false);
+        }
     }
 
 

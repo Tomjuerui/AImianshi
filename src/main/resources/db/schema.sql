@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS `report` (
     `strengths` TEXT,
     `weaknesses` TEXT,
     `suggestions` TEXT,
+    `ai_enabled` BOOLEAN DEFAULT FALSE,
+    `ai_provider` VARCHAR(20),
+    `ai_model` VARCHAR(50),
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );

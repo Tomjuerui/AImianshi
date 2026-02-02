@@ -21,6 +21,9 @@ public class Report {
     private String strengths;
     private String weaknesses;
     private String suggestions;
+    private Boolean aiEnabled;
+    private String aiProvider;
+    private String aiModel;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

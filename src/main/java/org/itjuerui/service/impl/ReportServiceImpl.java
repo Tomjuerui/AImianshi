@@ -4,12 +4,16 @@ import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.itjuerui.common.config.ReportAiProperties;
 import org.itjuerui.common.exception.BusinessException;
 import org.itjuerui.domain.interview.entity.InterviewSession;
 import org.itjuerui.domain.interview.entity.InterviewTurn;
 import org.itjuerui.domain.interview.enums.SessionStatus;
 import org.itjuerui.domain.interview.enums.TurnRole;
 import org.itjuerui.domain.report.entity.Report;
+import org.itjuerui.infra.llm.LlmService;
+import org.itjuerui.infra.llm.config.LlmProperties;
+import org.itjuerui.infra.llm.dto.Message;
 import org.itjuerui.infra.repo.InterviewSessionMapper;
 import org.itjuerui.infra.repo.InterviewTurnMapper;
 import org.itjuerui.infra.repo.ReportMapper;
@@ -32,6 +36,9 @@ public class ReportServiceImpl implements ReportService {
     private final InterviewSessionMapper sessionMapper;
     private final InterviewTurnMapper turnMapper;
     private final ReportMapper reportMapper;
+    private final LlmService llmService;
+    private final LlmProperties llmProperties;
+    private final ReportAiProperties reportAiProperties;
 
     @Override
     public Report getReport(Long sessionId) {
@@ -66,6 +73,7 @@ public class ReportServiceImpl implements ReportService {
         }
 
         Report report = buildReport(sessionId, candidateTurns);
+        report = enhanceReportIfEnabled(report, candidateTurns);
         Report existing = getReportBySessionId(sessionId);
         if (existing == null) {
             report.setCreatedAt(LocalDateTime.now());
@@ -179,5 +187,131 @@ public class ReportServiceImpl implements ReportService {
         }
         suggestions.add("结合具体项目经验举例，增强说服力");
         return suggestions;
+    }
+
+
+    private Report enhanceReportIfEnabled(Report report, List<InterviewTurn> candidateTurns) {
+        if (!reportAiProperties.isEnabled()) {
+            report.setAiEnabled(false);
+            return report;
+        }
+
+        List<Message> messages = buildAiMessages(report, candidateTurns);
+        try {
+            String response = llmService.chat(messages);
+            ReportAiResult result = parseAiResult(response);
+            if (result != null) {
+                report.setSummary(result.getSummary());
+                report.setStrengths(JSON.toJSONString(result.getStrengths()));
+                report.setWeaknesses(JSON.toJSONString(result.getWeaknesses()));
+                report.setSuggestions(JSON.toJSONString(result.getSuggestions()));
+                report.setAiEnabled(true);
+                report.setAiProvider(llmProperties.getProvider());
+                report.setAiModel(llmProperties.getModel());
+                return report;
+            }
+        } catch (Exception ex) {
+            log.warn("AI 报告润色失败，已降级为规则版: {}", ex.getMessage());
+        }
+
+        report.setAiEnabled(false);
+        return report;
+    }
+
+
+    private List<Message> buildAiMessages(Report report, List<InterviewTurn> candidateTurns) {
+        List<Message> messages = new ArrayList<>();
+        messages.add(new Message("system",
+                "你是资深Java后端面试官，需要将规则版面试报告润色成更自然的面试点评。"
+                        + "请严格输出JSON，字段包括 summary(字符串), strengths(字符串数组), weaknesses(字符串数组), suggestions(字符串数组)。"));
+
+        StringBuilder userContent = new StringBuilder();
+        userContent.append("规则评分信息：\n")
+                .append("overallScore=").append(report.getOverallScore()).append("\n")
+                .append("summary=").append(report.getSummary()).append("\n")
+                .append("strengths=").append(report.getStrengths()).append("\n")
+                .append("weaknesses=").append(report.getWeaknesses()).append("\n")
+                .append("suggestions=").append(report.getSuggestions()).append("\n");
+
+        int totalTurns = candidateTurns.size();
+        int totalLength = candidateTurns.stream()
+                .mapToInt(turn -> turn.getContentText() == null ? 0 : turn.getContentText().length())
+                .sum();
+        int averageLength = totalLength / Math.max(1, totalTurns);
+
+        userContent.append("候选人回答统计：回答次数=")
+                .append(totalTurns)
+                .append("，平均长度=")
+                .append(averageLength)
+                .append("。\n")
+                .append("对话摘录：\n")
+                .append(buildTurnSnippet(candidateTurns));
+
+        messages.add(new Message("user", userContent.toString()));
+        return messages;
+    }
+
+
+    private String buildTurnSnippet(List<InterviewTurn> candidateTurns) {
+        int startIndex = Math.max(0, candidateTurns.size() - 3);
+        StringBuilder snippet = new StringBuilder();
+        for (int i = startIndex; i < candidateTurns.size(); i++) {
+            InterviewTurn turn = candidateTurns.get(i);
+            snippet.append("候选人：").append(turn.getContentText()).append("\n");
+        }
+        return snippet.toString();
+    }
+
+
+    private ReportAiResult parseAiResult(String response) {
+        if (response == null || response.isBlank()) {
+            return null;
+        }
+        try {
+            return JSON.parseObject(response, ReportAiResult.class);
+        } catch (Exception ex) {
+            log.warn("AI 报告 JSON 解析失败: {}", ex.getMessage());
+            return null;
+        }
+    }
+
+
+    private static class ReportAiResult {
+        private String summary;
+        private List<String> strengths;
+        private List<String> weaknesses;
+        private List<String> suggestions;
+
+        public String getSummary() {
+            return summary;
+        }
+
+        public void setSummary(String summary) {
+            this.summary = summary;
+        }
+
+        public List<String> getStrengths() {
+            return strengths;
+        }
+
+        public void setStrengths(List<String> strengths) {
+            this.strengths = strengths;
+        }
+
+        public List<String> getWeaknesses() {
+            return weaknesses;
+        }
+
+        public void setWeaknesses(List<String> weaknesses) {
+            this.weaknesses = weaknesses;
+        }
+
+        public List<String> getSuggestions() {
+            return suggestions;
+        }
+
+        public void setSuggestions(List<String> suggestions) {
+            this.suggestions = suggestions;
+        }
     }
 }
