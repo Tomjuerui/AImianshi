@@ -37,6 +37,18 @@ public interface InterviewService {
      */
     NextQuestionResponse getNextQuestion(Long sessionId);
 
+
+    /**
+     * 流式获取下一个问题
+     */
+    org.springframework.web.servlet.mvc.method.annotation.SseEmitter streamNextQuestion(Long sessionId);
+
+
+    /**
+     * 结束面试会话
+     */
+    Long endSession(Long sessionId);
+
     /**
      * 开始面试
      */

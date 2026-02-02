@@ -22,6 +22,7 @@ import org.itjuerui.service.InterviewAiService;
 import org.itjuerui.service.InterviewService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -156,6 +157,31 @@ public class InterviewServiceImpl implements InterviewService {
 
         log.info("生成下一个问题: sessionId={}, turnId={}", sessionId, turn.getId());
         return response;
+    }
+
+
+    @Override
+    public SseEmitter streamNextQuestion(Long sessionId) {
+        return interviewAiService.streamNextQuestion(sessionId);
+    }
+
+
+    @Override
+    @Transactional
+    public Long endSession(Long sessionId) {
+        InterviewSession session = sessionMapper.selectById(sessionId);
+        if (session == null) {
+            throw new BusinessException("会话不存在: " + sessionId);
+        }
+        if (session.getStatus() != SessionStatus.ENDED) {
+            session.setStatus(SessionStatus.ENDED);
+            if (session.getEndedAt() == null) {
+                session.setEndedAt(LocalDateTime.now());
+            }
+            sessionMapper.updateById(session);
+            log.info("结束面试会话: sessionId={}", sessionId);
+        }
+        return sessionId;
     }
 
     @Override

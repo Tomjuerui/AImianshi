@@ -16,15 +16,11 @@ public class Report {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long sessionId;
-    private Integer totalScore;
-    private String grade;
-    private String dimensionScoresJson;
-    private String strengthsJson;
-    private String issuesJson;
-    private String knowledgeGapsJson;
-    private String nextActionsJson;
-    private String reportJson;
-    private String pdfUrl;
-    private String mdUrl;
+    private Integer overallScore;
+    private String summary;
+    private String strengths;
+    private String weaknesses;
+    private String suggestions;
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }
