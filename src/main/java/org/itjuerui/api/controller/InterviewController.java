@@ -12,6 +12,7 @@ import org.itjuerui.common.dto.ApiResponse;
 import org.itjuerui.service.InterviewService;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * 面试管理控制器
@@ -83,6 +84,14 @@ public class InterviewController {
     public ApiResponse<NextQuestionResponse> getNextQuestion(@PathVariable("id") Long sessionId) {
         NextQuestionResponse response = interviewService.getNextQuestion(sessionId);
         return ApiResponse.success(response);
+    }
+
+    /**
+     * 获取下一个问题（流式输出）
+     */
+    @GetMapping(value = "/sessions/{id}/next-question/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamNextQuestion(@PathVariable("id") Long sessionId) {
+        return interviewService.streamNextQuestion(sessionId);
     }
 
     // ========== 以下为原有接口，保留兼容性 ==========

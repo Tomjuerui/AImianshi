@@ -2,7 +2,7 @@
 
 ## 测试结果
 
-✅ **所有测试通过**: 7 个测试用例，0 失败，0 错误
+✅ **所有测试通过**: 9 个测试用例，0 失败，0 错误
 
 ## 本地验证步骤
 
@@ -129,6 +129,42 @@ curl -X GET http://localhost:8080/api/interview/sessions/1
 }
 ```
 
+### 5. 获取下一道面试问题
+
+```bash
+curl -X POST http://localhost:8080/api/interview/sessions/1/next-question
+```
+
+**预期响应**:
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "question": "请描述你在项目中解决过的性能瓶颈。",
+    "turnId": 3
+  }
+}
+```
+
+### 6. 获取下一道面试问题（SSE 流式）
+
+```bash
+curl -N http://localhost:8080/api/interview/sessions/1/next-question/stream
+```
+
+**预期输出**:
+```
+event: chunk
+data: 请分享
+
+event: chunk
+data: 一次你
+
+event: done
+data: {"turnId":3,"question":"请分享一次你解决线上故障的经历。"}
+```
+
 ## 参数校验测试
 
 ### 测试 1: 创建会话时缺少必填字段
@@ -226,6 +262,14 @@ echo ""
 
 echo "=== 4. 查询会话详情 ==="
 curl -s -X GET ${BASE_URL}/api/interview/sessions/${SESSION_ID} | jq
+echo ""
+
+echo "=== 5. 获取下一道面试问题 ==="
+curl -s -X POST ${BASE_URL}/api/interview/sessions/${SESSION_ID}/next-question | jq
+echo ""
+
+echo "=== 6. 获取下一道面试问题（SSE） ==="
+curl -N ${BASE_URL}/api/interview/sessions/${SESSION_ID}/next-question/stream
 ```
 
 ## 运行测试
@@ -235,7 +279,7 @@ cd aimian
 mvn test -Dtest=InterviewControllerTest
 ```
 
-**预期输出**: `Tests run: 7, Failures: 0, Errors: 0, Skipped: 0`
+**预期输出**: `Tests run: 9, Failures: 0, Errors: 0, Skipped: 0`
 
 ## 修改点说明
 
@@ -253,4 +297,6 @@ mvn test -Dtest=InterviewControllerTest
 3. ✅ **查询详情**: `GET /api/interview/sessions/{id}`
 4. ✅ **参数校验**: 所有接口都有完整的参数校验
 5. ✅ **错误处理**: 统一的错误响应格式
-6. ✅ **集成测试**: 7 个测试用例全部通过
+6. ✅ **集成测试**: 9 个测试用例全部通过
+7. ✅ **自动追问**: `POST /api/interview/sessions/{id}/next-question`
+8. ✅ **自动追问（SSE）**: `GET /api/interview/sessions/{id}/next-question/stream`
