@@ -7,7 +7,13 @@ public interface ReportService {
     /**
      * 获取报告
      */
-    Object getReport(Long sessionId);
+    org.itjuerui.domain.report.entity.Report getReport(Long sessionId);
+
+
+    /**
+     * 生成或更新报告
+     */
+    org.itjuerui.domain.report.entity.Report generateReport(Long sessionId);
 
     /**
      * 导出报告

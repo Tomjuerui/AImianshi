@@ -13,7 +13,7 @@ public class NextQuestionResponse {
     private String question;
 
     /**
-     * 问题轮次（第几轮）
+     * 新增的 turnId
      */
-    private Integer turnNumber;
+    private Long turnId;
 }

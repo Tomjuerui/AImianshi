@@ -1,5 +1,6 @@
 package org.itjuerui.service.impl;
 
+import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -12,15 +13,20 @@ import org.itjuerui.api.dto.SessionListRequest;
 import org.itjuerui.api.dto.SessionListResponse;
 import org.itjuerui.api.dto.TurnRequest;
 import org.itjuerui.common.exception.BusinessException;
+import org.itjuerui.domain.interview.dto.StagePlanStage;
 import org.itjuerui.domain.interview.entity.InterviewSession;
 import org.itjuerui.domain.interview.entity.InterviewTurn;
+import org.itjuerui.domain.interview.enums.InterviewStage;
 import org.itjuerui.domain.interview.enums.SessionStatus;
 import org.itjuerui.domain.interview.enums.TurnRole;
+import org.itjuerui.domain.interview.support.StagePlanFactory;
 import org.itjuerui.infra.repo.InterviewSessionMapper;
 import org.itjuerui.infra.repo.InterviewTurnMapper;
+import org.itjuerui.service.InterviewAiService;
 import org.itjuerui.service.InterviewService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -35,6 +41,7 @@ public class InterviewServiceImpl implements InterviewService {
 
     private final InterviewSessionMapper sessionMapper;
     private final InterviewTurnMapper turnMapper;
+    private final InterviewAiService interviewAiService;
 
     @Override
     @Transactional
@@ -45,6 +52,7 @@ public class InterviewServiceImpl implements InterviewService {
         session.setDurationMinutes(request.getDurationMinutes());
         session.setStatus(SessionStatus.CREATED);
         session.setCreatedAt(LocalDateTime.now());
+        ensureDefaultStagePlan(session);
 
         sessionMapper.insert(session);
         log.info("创建面试会话: sessionId={}, resumeId={}, duration={}",
@@ -146,45 +154,97 @@ public class InterviewServiceImpl implements InterviewService {
     @Override
     @Transactional
     public NextQuestionResponse getNextQuestion(Long sessionId) {
-        // 检查会话是否存在
+        InterviewTurn turn = interviewAiService.generateNextQuestion(sessionId);
+
+        NextQuestionResponse response = new NextQuestionResponse();
+        response.setQuestion(turn.getContentText());
+        response.setTurnId(turn.getId());
+
+        log.info("生成下一个问题: sessionId={}, turnId={}", sessionId, turn.getId());
+        return response;
+    }
+
+
+    @Override
+    public SseEmitter streamNextQuestion(Long sessionId) {
+        return interviewAiService.streamNextQuestion(sessionId);
+    }
+
+
+    @Override
+    @Transactional
+    public Long endSession(Long sessionId) {
         InterviewSession session = sessionMapper.selectById(sessionId);
         if (session == null) {
             throw new BusinessException("会话不存在: " + sessionId);
         }
-
-        // 查询当前 turns 数量
-        LambdaQueryWrapper<InterviewTurn> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(InterviewTurn::getSessionId, sessionId);
-        long currentTurnCount = turnMapper.selectCount(queryWrapper);
-        int nextTurnNumber = (int) currentTurnCount + 1;
-
-        // 首次调用时将 status 从 CREATED 切到 RUNNING，并写 startedAt
-        if (session.getStatus() == SessionStatus.CREATED) {
-            session.setStatus(SessionStatus.RUNNING);
-            session.setStartedAt(LocalDateTime.now());
+        if (session.getStatus() != SessionStatus.ENDED) {
+            session.setStatus(SessionStatus.ENDED);
+            if (session.getEndedAt() == null) {
+                session.setEndedAt(LocalDateTime.now());
+            }
             sessionMapper.updateById(session);
-            log.info("会话状态更新为 RUNNING: sessionId={}", sessionId);
+            log.info("结束面试会话: sessionId={}", sessionId);
+        }
+        return sessionId;
+    }
+
+
+    @Override
+    @Transactional
+    public InterviewSession advanceStage(Long sessionId) {
+        InterviewSession session = sessionMapper.selectById(sessionId);
+        if (session == null) {
+            throw new BusinessException("会话不存在: " + sessionId);
+        }
+        if (session.getStatus() == SessionStatus.ENDED) {
+            throw new BusinessException("会话已结束");
         }
 
-        // 生成占位问题
-        String question = String.format("第 %d 轮问题（占位）", nextTurnNumber);
+        List<StagePlanStage> stages = getStagePlan(session);
+        if (stages.isEmpty()) {
+            throw new BusinessException("阶段计划为空，无法推进");
+        }
 
-        // 创建一条 role=INTERVIEWER 的 turn
-        InterviewTurn turn = new InterviewTurn();
-        turn.setSessionId(sessionId);
-        turn.setRole(TurnRole.INTERVIEWER);
-        turn.setContentText(question);
-        turn.setCreatedAt(LocalDateTime.now());
-        turnMapper.insert(turn);
+        String currentCode = session.getCurrentStage() == null ? null : session.getCurrentStage().name();
+        int currentIndex = -1;
+        for (int i = 0; i < stages.size(); i++) {
+            if (stages.get(i).getCode().equalsIgnoreCase(currentCode)) {
+                currentIndex = i;
+                break;
+            }
+        }
 
-        // 构建响应
-        NextQuestionResponse response = new NextQuestionResponse();
-        response.setQuestion(question);
-        response.setTurnNumber(nextTurnNumber);
+        if (currentIndex < 0) {
+            session.setCurrentStage(InterviewStage.valueOf(stages.get(0).getCode()));
+        } else if (currentIndex + 1 < stages.size()) {
+            session.setCurrentStage(InterviewStage.valueOf(stages.get(currentIndex + 1).getCode()));
+        }
 
-        log.info("生成下一个问题: sessionId={}, turnNumber={}, question={}",
-                sessionId, nextTurnNumber, question);
-        return response;
+        sessionMapper.updateById(session);
+        return session;
+    }
+
+
+    private void ensureDefaultStagePlan(InterviewSession session) {
+        if (session.getStagePlanJson() == null || session.getStagePlanJson().isBlank()) {
+            List<StagePlanStage> stages = StagePlanFactory.defaultStages();
+            session.setStagePlanJson(JSON.toJSONString(stages));
+        }
+        if (session.getCurrentStage() == null) {
+            session.setCurrentStage(InterviewStage.BASICS);
+        }
+    }
+
+
+    private List<StagePlanStage> getStagePlan(InterviewSession session) {
+        if (session.getStagePlanJson() == null || session.getStagePlanJson().isBlank()) {
+            List<StagePlanStage> stages = StagePlanFactory.defaultStages();
+            session.setStagePlanJson(JSON.toJSONString(stages));
+            sessionMapper.updateById(session);
+            return stages;
+        }
+        return JSON.parseArray(session.getStagePlanJson(), StagePlanStage.class);
     }
 
     @Override
