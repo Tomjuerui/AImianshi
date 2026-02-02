@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS `interview_turn` (
     `session_id` BIGINT NOT NULL,
     `role` VARCHAR(20) NOT NULL,
     `content_text` TEXT NOT NULL,
+    `stage_code` VARCHAR(30),
     `audio_url` VARCHAR(500),
     `token_usage` VARCHAR(100),
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -60,17 +61,34 @@ CREATE INDEX IF NOT EXISTS `idx_created_at` ON `interview_turn` (`created_at`);
 CREATE TABLE IF NOT EXISTS `report` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `session_id` BIGINT NOT NULL UNIQUE,
-    `total_score` INT,
-    `grade` VARCHAR(10),
-    `dimension_scores_json` VARCHAR(5000),
-    `strengths_json` VARCHAR(5000),
-    `issues_json` VARCHAR(5000),
-    `knowledge_gaps_json` VARCHAR(5000),
-    `next_actions_json` VARCHAR(5000),
-    `report_json` VARCHAR(10000),
-    `pdf_url` VARCHAR(500),
-    `md_url` VARCHAR(500),
-    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+    `overall_score` INT NOT NULL,
+    `summary` TEXT,
+    `strengths` TEXT,
+    `weaknesses` TEXT,
+    `suggestions` TEXT,
+    `ai_enabled` BOOLEAN DEFAULT FALSE,
+    `ai_provider` VARCHAR(20),
+    `ai_model` VARCHAR(50),
+    `stage_reports` TEXT,
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS `idx_session_id` ON `report` (`session_id`);
+
+-- 阶段小结表
+CREATE TABLE IF NOT EXISTS `stage_mini_report` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+    `session_id` BIGINT NOT NULL,
+    `stage_code` VARCHAR(30) NOT NULL,
+    `score` INT NOT NULL,
+    `summary` TEXT,
+    `strengths` TEXT,
+    `weaknesses` TEXT,
+    `suggestions` TEXT,
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE (`session_id`, `stage_code`)
+);
+
+CREATE INDEX IF NOT EXISTS `idx_stage_session_id` ON `stage_mini_report` (`session_id`);

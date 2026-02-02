@@ -2,7 +2,7 @@
 
 ## 测试结果
 
-✅ **所有测试通过**: 7 个测试用例，0 失败，0 错误
+✅ **所有测试通过**: 25 个测试用例，0 失败，0 错误
 
 ## 本地验证步骤
 
@@ -129,6 +129,136 @@ curl -X GET http://localhost:8080/api/interview/sessions/1
 }
 ```
 
+### 5. 获取下一道面试问题
+
+```bash
+curl -X POST http://localhost:8080/api/interview/sessions/1/next-question
+```
+
+**预期响应**:
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "question": "请描述你在项目中解决过的性能瓶颈。",
+    "turnId": 3
+  }
+}
+```
+
+### 6. 获取下一道面试问题（SSE 流式）
+
+```bash
+curl -N http://localhost:8080/api/interview/sessions/1/next-question/stream
+```
+
+**预期输出**:
+```
+event: chunk
+data: 请分享
+
+event: chunk
+data: 一次你
+
+event: done
+data: {"turnId":3,"question":"请分享一次你解决线上故障的经历。"}
+```
+
+### 7. 会话状态机流转（CREATED -> RUNNING -> ENDED）
+
+```bash
+# 1) 创建会话后，status=CREATED，startedAt/endedAt 为 null
+curl -X POST http://localhost:8080/api/interview/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"resumeId": 1, "durationMinutes": 30}'
+
+curl -X GET http://localhost:8080/api/interview/sessions/1 | jq '.data.session'
+
+# 2) 首次调用 next-question 后，status=RUNNING，startedAt 有值
+curl -X POST http://localhost:8080/api/interview/sessions/1/next-question | jq
+curl -X GET http://localhost:8080/api/interview/sessions/1 | jq '.data.session'
+
+# 3) 调用 end 后，status=ENDED，endedAt 有值
+curl -X POST http://localhost:8080/api/interview/sessions/1/end | jq
+curl -X GET http://localhost:8080/api/interview/sessions/1 | jq '.data.session'
+```
+
+### 8. 阶段化面试编排（Stage Plan）
+
+```bash
+# 创建会话后默认 currentStage=BASICS，stagePlanJson 有默认计划
+curl -X GET http://localhost:8080/api/interview/sessions/1 | jq '.data.session.currentStage'
+curl -X GET http://localhost:8080/api/interview/sessions/1 | jq '.data.session.stagePlanJson'
+
+# 手动推进阶段
+curl -X POST http://localhost:8080/api/interview/sessions/1/stage/next | jq '.data.currentStage'
+
+# 再次调用 next-question，将带有阶段目标提示
+curl -X POST http://localhost:8080/api/interview/sessions/1/next-question | jq
+```
+
+### 9. 阶段小结与最终报告聚合
+
+```bash
+# 推进阶段时自动生成阶段小结（可在最终报告中体现）
+curl -X POST http://localhost:8080/api/interview/sessions/1/stage/next | jq
+
+# 结束会话后生成最终报告，summary 会包含“分阶段评价”
+curl -X POST http://localhost:8080/api/interview/sessions/1/end | jq
+curl -X POST http://localhost:8080/api/interview/sessions/1/report | jq
+```
+
+### 10. 生成与查询面试报告
+
+```bash
+# 前置：会话已结束
+curl -X POST http://localhost:8080/api/interview/sessions/1/report | jq
+
+curl -X GET http://localhost:8080/api/interview/sessions/1/report | jq
+```
+
+**预期响应**:
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "id": 1,
+    "sessionId": 1,
+    "overallScore": 78,
+    "summary": "候选人共回答2次，平均回答长度约36字，综合评分为78分。",
+    "strengths": "[\"回答内容较为充分，信息量充足\"]",
+    "weaknesses": "[\"部分回答缺少结构化表达\"]",
+    "suggestions": "[\"保持回答的清晰结构，并突出关键技术点\",\"结合具体项目经验举例，增强说服力\"]",
+    "createdAt": "2026-02-01T21:14:03.670287",
+    "updatedAt": "2026-02-01T21:20:03.670287"
+  }
+}
+```
+
+### 11. 开启 AI 报告润色（可选）
+
+在 `application-dev.properties` 或 `application.properties` 中开启：
+```properties
+report.ai.enabled=true
+```
+
+**示例响应**（summary 与建议更自然，分数保持规则版不变）:
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "overallScore": 78,
+    "summary": "候选人回答较为流畅，能结合项目经验给出要点，但仍可补充更多细节。",
+    "strengths": "[\"表达清晰，逻辑完整\",\"回答覆盖关键技术点\"]",
+    "weaknesses": "[\"部分回答缺少具体量化指标\"]",
+    "suggestions": "[\"补充具体优化数据，增强说服力\",\"回答时突出核心技术选型理由\"]"
+  }
+}
+```
+
 ## 参数校验测试
 
 ### 测试 1: 创建会话时缺少必填字段
@@ -226,6 +356,27 @@ echo ""
 
 echo "=== 4. 查询会话详情 ==="
 curl -s -X GET ${BASE_URL}/api/interview/sessions/${SESSION_ID} | jq
+echo ""
+
+echo "=== 5. 获取下一道面试问题 ==="
+curl -s -X POST ${BASE_URL}/api/interview/sessions/${SESSION_ID}/next-question | jq
+echo ""
+
+echo "=== 6. 获取下一道面试问题（SSE） ==="
+curl -N ${BASE_URL}/api/interview/sessions/${SESSION_ID}/next-question/stream
+echo ""
+
+echo "=== 7. 结束会话 ==="
+curl -s -X POST ${BASE_URL}/api/interview/sessions/${SESSION_ID}/end | jq
+echo ""
+
+echo "=== 8. 推进阶段（自动生成阶段小结） ==="
+curl -s -X POST ${BASE_URL}/api/interview/sessions/${SESSION_ID}/stage/next | jq
+echo ""
+
+echo "=== 9. 生成并查询面试报告（包含阶段小结） ==="
+curl -s -X POST ${BASE_URL}/api/interview/sessions/${SESSION_ID}/report | jq
+curl -s -X GET ${BASE_URL}/api/interview/sessions/${SESSION_ID}/report | jq
 ```
 
 ## 运行测试
@@ -235,7 +386,7 @@ cd aimian
 mvn test -Dtest=InterviewControllerTest
 ```
 
-**预期输出**: `Tests run: 7, Failures: 0, Errors: 0, Skipped: 0`
+**预期输出**: `Tests run: 25, Failures: 0, Errors: 0, Skipped: 0`
 
 ## 修改点说明
 
@@ -253,4 +404,10 @@ mvn test -Dtest=InterviewControllerTest
 3. ✅ **查询详情**: `GET /api/interview/sessions/{id}`
 4. ✅ **参数校验**: 所有接口都有完整的参数校验
 5. ✅ **错误处理**: 统一的错误响应格式
-6. ✅ **集成测试**: 7 个测试用例全部通过
+6. ✅ **集成测试**: 25 个测试用例全部通过
+7. ✅ **自动追问**: `POST /api/interview/sessions/{id}/next-question`
+8. ✅ **自动追问（SSE）**: `GET /api/interview/sessions/{id}/next-question/stream`
+9. ✅ **结束会话**: `POST /api/interview/sessions/{id}/end`
+10. ✅ **阶段推进**: `POST /api/interview/sessions/{id}/stage/next`
+11. ✅ **阶段小结**: `POST /api/interview/sessions/{id}/stage/next`
+12. ✅ **生成/查询报告**: `POST /api/interview/sessions/{id}/report` / `GET /api/interview/sessions/{id}/report`

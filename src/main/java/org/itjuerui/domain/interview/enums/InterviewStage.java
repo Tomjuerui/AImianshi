@@ -4,6 +4,10 @@ package org.itjuerui.domain.interview.enums;
  * 面试阶段枚举
  */
 public enum InterviewStage {
+    BASICS("基础沟通"),
+    PROJECT("项目深挖"),
+    FUNDAMENTALS("原理基础"),
+    SCENARIOS("场景设计"),
     INTRO("项目总览"),
     JAVA_BASIC("Java基础"),
     SPRING("Spring体系"),
