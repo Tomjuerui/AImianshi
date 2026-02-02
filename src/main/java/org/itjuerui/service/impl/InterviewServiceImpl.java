@@ -165,6 +165,25 @@ public class InterviewServiceImpl implements InterviewService {
         return interviewAiService.streamNextQuestion(sessionId);
     }
 
+
+    @Override
+    @Transactional
+    public Long endSession(Long sessionId) {
+        InterviewSession session = sessionMapper.selectById(sessionId);
+        if (session == null) {
+            throw new BusinessException("会话不存在: " + sessionId);
+        }
+        if (session.getStatus() != SessionStatus.ENDED) {
+            session.setStatus(SessionStatus.ENDED);
+            if (session.getEndedAt() == null) {
+                session.setEndedAt(LocalDateTime.now());
+            }
+            sessionMapper.updateById(session);
+            log.info("结束面试会话: sessionId={}", sessionId);
+        }
+        return sessionId;
+    }
+
     @Override
     public Object startInterview(Long sessionId) {
         // TODO: 实现开始面试逻辑

@@ -2,7 +2,7 @@
 
 ## 测试结果
 
-✅ **所有测试通过**: 9 个测试用例，0 失败，0 错误
+✅ **所有测试通过**: 13 个测试用例，0 失败，0 错误
 
 ## 本地验证步骤
 
@@ -165,6 +165,25 @@ event: done
 data: {"turnId":3,"question":"请分享一次你解决线上故障的经历。"}
 ```
 
+### 7. 会话状态机流转（CREATED -> RUNNING -> ENDED）
+
+```bash
+# 1) 创建会话后，status=CREATED，startedAt/endedAt 为 null
+curl -X POST http://localhost:8080/api/interview/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"resumeId": 1, "durationMinutes": 30}'
+
+curl -X GET http://localhost:8080/api/interview/sessions/1 | jq '.data.session'
+
+# 2) 首次调用 next-question 后，status=RUNNING，startedAt 有值
+curl -X POST http://localhost:8080/api/interview/sessions/1/next-question | jq
+curl -X GET http://localhost:8080/api/interview/sessions/1 | jq '.data.session'
+
+# 3) 调用 end 后，status=ENDED，endedAt 有值
+curl -X POST http://localhost:8080/api/interview/sessions/1/end | jq
+curl -X GET http://localhost:8080/api/interview/sessions/1 | jq '.data.session'
+```
+
 ## 参数校验测试
 
 ### 测试 1: 创建会话时缺少必填字段
@@ -270,6 +289,10 @@ echo ""
 
 echo "=== 6. 获取下一道面试问题（SSE） ==="
 curl -N ${BASE_URL}/api/interview/sessions/${SESSION_ID}/next-question/stream
+echo ""
+
+echo "=== 7. 结束会话 ==="
+curl -s -X POST ${BASE_URL}/api/interview/sessions/${SESSION_ID}/end | jq
 ```
 
 ## 运行测试
@@ -279,7 +302,7 @@ cd aimian
 mvn test -Dtest=InterviewControllerTest
 ```
 
-**预期输出**: `Tests run: 9, Failures: 0, Errors: 0, Skipped: 0`
+**预期输出**: `Tests run: 13, Failures: 0, Errors: 0, Skipped: 0`
 
 ## 修改点说明
 
@@ -297,6 +320,7 @@ mvn test -Dtest=InterviewControllerTest
 3. ✅ **查询详情**: `GET /api/interview/sessions/{id}`
 4. ✅ **参数校验**: 所有接口都有完整的参数校验
 5. ✅ **错误处理**: 统一的错误响应格式
-6. ✅ **集成测试**: 9 个测试用例全部通过
+6. ✅ **集成测试**: 13 个测试用例全部通过
 7. ✅ **自动追问**: `POST /api/interview/sessions/{id}/next-question`
 8. ✅ **自动追问（SSE）**: `GET /api/interview/sessions/{id}/next-question/stream`
+9. ✅ **结束会话**: `POST /api/interview/sessions/{id}/end`

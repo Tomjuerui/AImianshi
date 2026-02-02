@@ -66,6 +66,40 @@ class InterviewControllerTest {
         assertTrue(response.getData() > 0);
     }
 
+
+    @Test
+    void testCreateSession_StatusCreated() throws Exception {
+        InterviewCreateRequest request = new InterviewCreateRequest();
+        request.setResumeId(1L);
+        request.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(request)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {});
+        Long sessionId = createResponse.getData();
+
+        MvcResult detailResult = mockMvc.perform(get("/api/interview/sessions/{id}", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andReturn();
+
+        String detailBody = detailResult.getResponse().getContentAsString();
+        ApiResponse<SessionDetailResponse> detailResponse = JSON.parseObject(
+                detailBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<SessionDetailResponse>>() {}
+        );
+
+        assertEquals(SessionStatus.CREATED, detailResponse.getData().getSession().getStatus());
+        assertNull(detailResponse.getData().getSession().getStartedAt());
+        assertNull(detailResponse.getData().getSession().getEndedAt());
+    }
+
     @Test
     void testCreateSession_ValidationFailed() throws Exception {
         // 测试缺少必填字段
@@ -313,6 +347,76 @@ class InterviewControllerTest {
         assertEquals(TurnRole.INTERVIEWER, detailResponse.getData().getTurns().get(0).getRole());
         assertNotNull(detailResponse.getData().getTurns().get(0).getContentText());
         assertFalse(detailResponse.getData().getTurns().get(0).getContentText().isEmpty());
+    }
+
+
+    @Test
+    void testEndSession_UpdatesStatus() throws Exception {
+        InterviewCreateRequest createRequest = new InterviewCreateRequest();
+        createRequest.setResumeId(1L);
+        createRequest.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(createRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(
+                createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
+        );
+        Long sessionId = createResponse.getData();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").value(sessionId));
+
+        MvcResult detailResult = mockMvc.perform(get("/api/interview/sessions/{id}", sessionId))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String detailBody = detailResult.getResponse().getContentAsString();
+        ApiResponse<SessionDetailResponse> detailResponse = JSON.parseObject(
+                detailBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<SessionDetailResponse>>() {}
+        );
+
+        assertEquals(SessionStatus.ENDED, detailResponse.getData().getSession().getStatus());
+        assertNotNull(detailResponse.getData().getSession().getEndedAt());
+    }
+
+
+    @Test
+    void testNextQuestion_WhenSessionEnded_ReturnsBadRequest() throws Exception {
+        Mockito.when(llmService.chat(anyList())).thenReturn("请介绍一次技术难题的解决过程。");
+
+        InterviewCreateRequest createRequest = new InterviewCreateRequest();
+        createRequest.setResumeId(1L);
+        createRequest.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(createRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(
+                createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
+        );
+        Long sessionId = createResponse.getData();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/next-question", sessionId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").exists());
     }
 
     @Test
@@ -609,5 +713,41 @@ class InterviewControllerTest {
         assertTrue(content.contains("event: chunk"));
         assertTrue(content.contains("event: done"));
         assertTrue(content.contains("\"turnId\""));
+    }
+
+
+    @Test
+    void testGetNextQuestionStream_WhenSessionEnded_ReturnsErrorEvent() throws Exception {
+        InterviewCreateRequest createRequest = new InterviewCreateRequest();
+        createRequest.setResumeId(1L);
+        createRequest.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(createRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(
+                createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
+        );
+        Long sessionId = createResponse.getData();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                .andExpect(status().isOk());
+
+        MvcResult streamResult = mockMvc.perform(get("/api/interview/sessions/{id}/next-question/stream", sessionId))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        MvcResult asyncResult = mockMvc.perform(asyncDispatch(streamResult))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+                .andReturn();
+
+        String content = asyncResult.getResponse().getContentAsString();
+        assertTrue(content.contains("event: error"));
     }
 }

@@ -43,6 +43,12 @@ public interface InterviewService {
      */
     org.springframework.web.servlet.mvc.method.annotation.SseEmitter streamNextQuestion(Long sessionId);
 
+
+    /**
+     * 结束面试会话
+     */
+    Long endSession(Long sessionId);
+
     /**
      * 开始面试
      */

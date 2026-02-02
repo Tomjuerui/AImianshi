@@ -94,6 +94,15 @@ public class InterviewController {
         return interviewService.streamNextQuestion(sessionId);
     }
 
+    /**
+     * 结束面试会话
+     */
+    @PostMapping("/sessions/{id}/end")
+    public ApiResponse<Long> endSession(@PathVariable("id") Long sessionId) {
+        Long endedSessionId = interviewService.endSession(sessionId);
+        return ApiResponse.success(endedSessionId);
+    }
+
     // ========== 以下为原有接口，保留兼容性 ==========
 
     @PostMapping("/interviews")

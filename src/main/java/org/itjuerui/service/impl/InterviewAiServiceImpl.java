@@ -50,6 +50,11 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         if (session == null) {
             throw new BusinessException("会话不存在: " + sessionId);
         }
+        if (session.getStatus() == SessionStatus.ENDED) {
+            throw new BusinessException("会话已结束");
+        }
+
+        ensureSessionRunning(session);
 
         LambdaQueryWrapper<InterviewTurn> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(InterviewTurn::getSessionId, sessionId)
@@ -60,12 +65,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         String question = llmService.chat(messages);
         if (question == null || question.trim().isEmpty()) {
             throw new BusinessException(500, "LLM 返回空问题");
-        }
-
-        if (session.getStatus() == SessionStatus.CREATED) {
-            session.setStatus(SessionStatus.RUNNING);
-            session.setStartedAt(LocalDateTime.now());
-            sessionMapper.updateById(session);
         }
 
         InterviewTurn turn = new InterviewTurn();
@@ -96,6 +95,12 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                     sendError(emitter, "会话不存在: " + sessionId);
                     return;
                 }
+                if (session.getStatus() == SessionStatus.ENDED) {
+                    sendError(emitter, "会话已结束");
+                    return;
+                }
+
+                ensureSessionRunning(session);
 
                 LambdaQueryWrapper<InterviewTurn> queryWrapper = new LambdaQueryWrapper<>();
                 queryWrapper.eq(InterviewTurn::getSessionId, sessionId)
@@ -157,12 +162,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
 
     private InterviewTurn persistTurn(InterviewSession session, String question) {
-        if (session.getStatus() == SessionStatus.CREATED) {
-            session.setStatus(SessionStatus.RUNNING);
-            session.setStartedAt(LocalDateTime.now());
-            sessionMapper.updateById(session);
-        }
-
         InterviewTurn turn = new InterviewTurn();
         turn.setSessionId(session.getId());
         turn.setRole(TurnRole.INTERVIEWER);
@@ -213,5 +212,16 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     private String escapeJson(String value) {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+
+    private void ensureSessionRunning(InterviewSession session) {
+        if (session.getStatus() == SessionStatus.CREATED) {
+            session.setStatus(SessionStatus.RUNNING);
+            if (session.getStartedAt() == null) {
+                session.setStartedAt(LocalDateTime.now());
+            }
+            sessionMapper.updateById(session);
+        }
     }
 }
