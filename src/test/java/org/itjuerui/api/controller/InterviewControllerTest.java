@@ -10,17 +10,21 @@ import org.itjuerui.common.dto.ApiResponse;
 import org.itjuerui.domain.interview.entity.InterviewSession;
 import org.itjuerui.domain.interview.enums.SessionStatus;
 import org.itjuerui.domain.interview.enums.TurnRole;
+import org.itjuerui.infra.llm.LlmService;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -37,6 +41,9 @@ class InterviewControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockBean
+    private LlmService llmService;
 
     @Test
     void testCreateSession_Success() throws Exception {
@@ -242,6 +249,7 @@ class InterviewControllerTest {
 
     @Test
     void testGetNextQuestion_FirstCall() throws Exception {
+        Mockito.when(llmService.chat(anyList())).thenReturn("请简要介绍你对 Spring Boot 的理解。");
         // 先创建会话
         InterviewCreateRequest createRequest = new InterviewCreateRequest();
         createRequest.setResumeId(1L);
@@ -276,7 +284,7 @@ class InterviewControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.question").exists())
-                .andExpect(jsonPath("$.data.turnNumber").value(1))
+                .andExpect(jsonPath("$.data.turnId").exists())
                 .andReturn();
 
         String nextQuestionBody = nextQuestionResult.getResponse().getContentAsString();
@@ -287,7 +295,7 @@ class InterviewControllerTest {
         assertNotNull(nextQuestionResponse.getData());
         assertNotNull(nextQuestionResponse.getData().getQuestion());
         assertFalse(nextQuestionResponse.getData().getQuestion().isEmpty());
-        assertEquals(1, nextQuestionResponse.getData().getTurnNumber());
+        assertNotNull(nextQuestionResponse.getData().getTurnId());
 
         // 验证调用后：状态变为 RUNNING，turns 数+1，最新 turn 为 INTERVIEWER
         MvcResult detailResult = mockMvc.perform(get("/api/interview/sessions/{id}", sessionId))
@@ -309,6 +317,7 @@ class InterviewControllerTest {
 
     @Test
     void testGetNextQuestion_MultipleCalls() throws Exception {
+        Mockito.when(llmService.chat(anyList())).thenReturn("请解释 Java 中的 JVM 内存模型。", "说说你对 GC 调优的理解。");
         // 先创建会话
         InterviewCreateRequest createRequest = new InterviewCreateRequest();
         createRequest.setResumeId(1L);
@@ -329,7 +338,7 @@ class InterviewControllerTest {
         mockMvc.perform(post("/api/interview/sessions/{id}/next-question", sessionId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data.turnNumber").value(1));
+                .andExpect(jsonPath("$.data.turnId").exists());
 
         // 验证第一次调用后 turns 数为 1
         MvcResult detailResult1 = mockMvc.perform(get("/api/interview/sessions/{id}", sessionId))
@@ -347,7 +356,7 @@ class InterviewControllerTest {
         mockMvc.perform(post("/api/interview/sessions/{id}/next-question", sessionId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data.turnNumber").value(2));
+                .andExpect(jsonPath("$.data.turnId").exists());
 
         // 验证第二次调用后 turns 数+1，最新 turn 为 INTERVIEWER
         MvcResult detailResult2 = mockMvc.perform(get("/api/interview/sessions/{id}", sessionId))
@@ -522,5 +531,46 @@ class InterviewControllerTest {
                 new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
         );
         return response.getData();
+    }
+
+    @Test
+    void testGetNextQuestion_ReturnsQuestionAndTurnId() throws Exception {
+        Mockito.when(llmService.chat(anyList())).thenReturn("请描述你在项目中解决过的性能瓶颈。");
+
+        InterviewCreateRequest createRequest = new InterviewCreateRequest();
+        createRequest.setResumeId(1L);
+        createRequest.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(createRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(
+                createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
+        );
+        Long sessionId = createResponse.getData();
+
+        MvcResult nextQuestionResult = mockMvc.perform(post("/api/interview/sessions/{id}/next-question", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.question").exists())
+                .andExpect(jsonPath("$.data.turnId").exists())
+                .andReturn();
+
+        String nextQuestionBody = nextQuestionResult.getResponse().getContentAsString();
+        ApiResponse<NextQuestionResponse> nextQuestionResponse = JSON.parseObject(
+                nextQuestionBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<NextQuestionResponse>>() {}
+        );
+
+        assertNotNull(nextQuestionResponse.getData());
+        assertNotNull(nextQuestionResponse.getData().getQuestion());
+        assertFalse(nextQuestionResponse.getData().getQuestion().isEmpty());
+        assertNotNull(nextQuestionResponse.getData().getTurnId());
+        assertTrue(nextQuestionResponse.getData().getTurnId() > 0);
     }
 }

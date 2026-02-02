@@ -32,9 +32,8 @@ public interface InterviewService {
     SessionListResponse getSessionList(SessionListRequest request);
 
     /**
-     * 获取下一个问题（占位实现）
-     * 根据当前 turns 数量返回一个占位问题，并自动写入一条 role=INTERVIEWER 的 turn
-     * 首次调用时将 status 从 CREATED 切到 RUNNING，并写 startedAt
+     * 获取下一个问题
+     * 根据历史对话生成面试官问题，并自动写入一条 role=INTERVIEWER 的 turn
      */
     NextQuestionResponse getNextQuestion(Long sessionId);
 
