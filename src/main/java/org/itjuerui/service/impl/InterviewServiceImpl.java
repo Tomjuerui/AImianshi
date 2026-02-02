@@ -18,9 +18,11 @@ import org.itjuerui.domain.interview.enums.SessionStatus;
 import org.itjuerui.domain.interview.enums.TurnRole;
 import org.itjuerui.infra.repo.InterviewSessionMapper;
 import org.itjuerui.infra.repo.InterviewTurnMapper;
+import org.itjuerui.service.InterviewAiService;
 import org.itjuerui.service.InterviewService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -35,6 +37,7 @@ public class InterviewServiceImpl implements InterviewService {
 
     private final InterviewSessionMapper sessionMapper;
     private final InterviewTurnMapper turnMapper;
+    private final InterviewAiService interviewAiService;
 
     @Override
     @Transactional
@@ -146,45 +149,39 @@ public class InterviewServiceImpl implements InterviewService {
     @Override
     @Transactional
     public NextQuestionResponse getNextQuestion(Long sessionId) {
-        // 检查会话是否存在
+        InterviewTurn turn = interviewAiService.generateNextQuestion(sessionId);
+
+        NextQuestionResponse response = new NextQuestionResponse();
+        response.setQuestion(turn.getContentText());
+        response.setTurnId(turn.getId());
+
+        log.info("生成下一个问题: sessionId={}, turnId={}", sessionId, turn.getId());
+        return response;
+    }
+
+
+    @Override
+    public SseEmitter streamNextQuestion(Long sessionId) {
+        return interviewAiService.streamNextQuestion(sessionId);
+    }
+
+
+    @Override
+    @Transactional
+    public Long endSession(Long sessionId) {
         InterviewSession session = sessionMapper.selectById(sessionId);
         if (session == null) {
             throw new BusinessException("会话不存在: " + sessionId);
         }
-
-        // 查询当前 turns 数量
-        LambdaQueryWrapper<InterviewTurn> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(InterviewTurn::getSessionId, sessionId);
-        long currentTurnCount = turnMapper.selectCount(queryWrapper);
-        int nextTurnNumber = (int) currentTurnCount + 1;
-
-        // 首次调用时将 status 从 CREATED 切到 RUNNING，并写 startedAt
-        if (session.getStatus() == SessionStatus.CREATED) {
-            session.setStatus(SessionStatus.RUNNING);
-            session.setStartedAt(LocalDateTime.now());
+        if (session.getStatus() != SessionStatus.ENDED) {
+            session.setStatus(SessionStatus.ENDED);
+            if (session.getEndedAt() == null) {
+                session.setEndedAt(LocalDateTime.now());
+            }
             sessionMapper.updateById(session);
-            log.info("会话状态更新为 RUNNING: sessionId={}", sessionId);
+            log.info("结束面试会话: sessionId={}", sessionId);
         }
-
-        // 生成占位问题
-        String question = String.format("第 %d 轮问题（占位）", nextTurnNumber);
-
-        // 创建一条 role=INTERVIEWER 的 turn
-        InterviewTurn turn = new InterviewTurn();
-        turn.setSessionId(sessionId);
-        turn.setRole(TurnRole.INTERVIEWER);
-        turn.setContentText(question);
-        turn.setCreatedAt(LocalDateTime.now());
-        turnMapper.insert(turn);
-
-        // 构建响应
-        NextQuestionResponse response = new NextQuestionResponse();
-        response.setQuestion(question);
-        response.setTurnNumber(nextTurnNumber);
-
-        log.info("生成下一个问题: sessionId={}, turnNumber={}, question={}",
-                sessionId, nextTurnNumber, question);
-        return response;
+        return sessionId;
     }
 
     @Override

@@ -10,8 +10,10 @@ import org.itjuerui.api.dto.SessionListResponse;
 import org.itjuerui.api.dto.TurnRequest;
 import org.itjuerui.common.dto.ApiResponse;
 import org.itjuerui.service.InterviewService;
+import org.itjuerui.service.ReportService;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * 面试管理控制器
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.*;
 public class InterviewController {
 
     private final InterviewService interviewService;
+    private final ReportService reportService;
 
     /**
      * 创建面试会话
@@ -83,6 +86,39 @@ public class InterviewController {
     public ApiResponse<NextQuestionResponse> getNextQuestion(@PathVariable("id") Long sessionId) {
         NextQuestionResponse response = interviewService.getNextQuestion(sessionId);
         return ApiResponse.success(response);
+    }
+
+    /**
+     * 获取下一个问题（流式输出）
+     */
+    @GetMapping(value = "/sessions/{id}/next-question/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamNextQuestion(@PathVariable("id") Long sessionId) {
+        return interviewService.streamNextQuestion(sessionId);
+    }
+
+    /**
+     * 结束面试会话
+     */
+    @PostMapping("/sessions/{id}/end")
+    public ApiResponse<Long> endSession(@PathVariable("id") Long sessionId) {
+        Long endedSessionId = interviewService.endSession(sessionId);
+        return ApiResponse.success(endedSessionId);
+    }
+
+    /**
+     * 生成面试报告
+     */
+    @PostMapping("/sessions/{id}/report")
+    public ApiResponse<?> generateReport(@PathVariable("id") Long sessionId) {
+        return ApiResponse.success(reportService.generateReport(sessionId));
+    }
+
+    /**
+     * 查询面试报告
+     */
+    @GetMapping("/sessions/{id}/report")
+    public ApiResponse<?> getReport(@PathVariable("id") Long sessionId) {
+        return ApiResponse.success(reportService.getReport(sessionId));
     }
 
     // ========== 以下为原有接口，保留兼容性 ==========
