@@ -1,36 +1,27 @@
 package org.itjuerui.domain.report.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
-import org.itjuerui.domain.report.entity.StageMiniReport;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 /**
- * 面试报告实体
+ * 阶段小结实体
  */
 @Data
-@TableName("report")
-public class Report {
+@TableName("stage_mini_report")
+public class StageMiniReport {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long sessionId;
-    private Integer overallScore;
+    private String stageCode;
+    private Integer score;
     private String summary;
     private String strengths;
     private String weaknesses;
     private String suggestions;
-    private Boolean aiEnabled;
-    private String aiProvider;
-    private String aiModel;
-    @TableField("stage_reports")
-    private String stageReportsJson;
-    @TableField(exist = false)
-    private List<StageMiniReport> stageReports;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

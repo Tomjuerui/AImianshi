@@ -76,6 +76,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         turn.setSessionId(sessionId);
         turn.setRole(TurnRole.INTERVIEWER);
         turn.setContentText(question.trim());
+        if (session.getCurrentStage() != null) {
+            turn.setStageCode(session.getCurrentStage().name());
+        }
         turn.setCreatedAt(LocalDateTime.now());
         turnMapper.insert(turn);
 
@@ -184,6 +187,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         turn.setSessionId(session.getId());
         turn.setRole(TurnRole.INTERVIEWER);
         turn.setContentText(question);
+        if (session.getCurrentStage() != null) {
+            turn.setStageCode(session.getCurrentStage().name());
+        }
         turn.setCreatedAt(LocalDateTime.now());
         turnMapper.insert(turn);
         return turn;

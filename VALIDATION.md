@@ -2,7 +2,7 @@
 
 ## 测试结果
 
-✅ **所有测试通过**: 22 个测试用例，0 失败，0 错误
+✅ **所有测试通过**: 25 个测试用例，0 失败，0 错误
 
 ## 本地验证步骤
 
@@ -198,7 +198,18 @@ curl -X POST http://localhost:8080/api/interview/sessions/1/stage/next | jq '.da
 curl -X POST http://localhost:8080/api/interview/sessions/1/next-question | jq
 ```
 
-### 9. 生成与查询面试报告
+### 9. 阶段小结与最终报告聚合
+
+```bash
+# 推进阶段时自动生成阶段小结（可在最终报告中体现）
+curl -X POST http://localhost:8080/api/interview/sessions/1/stage/next | jq
+
+# 结束会话后生成最终报告，summary 会包含“分阶段评价”
+curl -X POST http://localhost:8080/api/interview/sessions/1/end | jq
+curl -X POST http://localhost:8080/api/interview/sessions/1/report | jq
+```
+
+### 10. 生成与查询面试报告
 
 ```bash
 # 前置：会话已结束
@@ -226,7 +237,7 @@ curl -X GET http://localhost:8080/api/interview/sessions/1/report | jq
 }
 ```
 
-### 10. 开启 AI 报告润色（可选）
+### 11. 开启 AI 报告润色（可选）
 
 在 `application-dev.properties` 或 `application.properties` 中开启：
 ```properties
@@ -359,11 +370,11 @@ echo "=== 7. 结束会话 ==="
 curl -s -X POST ${BASE_URL}/api/interview/sessions/${SESSION_ID}/end | jq
 echo ""
 
-echo "=== 8. 推进阶段 ==="
+echo "=== 8. 推进阶段（自动生成阶段小结） ==="
 curl -s -X POST ${BASE_URL}/api/interview/sessions/${SESSION_ID}/stage/next | jq
 echo ""
 
-echo "=== 9. 生成并查询面试报告 ==="
+echo "=== 9. 生成并查询面试报告（包含阶段小结） ==="
 curl -s -X POST ${BASE_URL}/api/interview/sessions/${SESSION_ID}/report | jq
 curl -s -X GET ${BASE_URL}/api/interview/sessions/${SESSION_ID}/report | jq
 ```
@@ -375,7 +386,7 @@ cd aimian
 mvn test -Dtest=InterviewControllerTest
 ```
 
-**预期输出**: `Tests run: 22, Failures: 0, Errors: 0, Skipped: 0`
+**预期输出**: `Tests run: 25, Failures: 0, Errors: 0, Skipped: 0`
 
 ## 修改点说明
 
@@ -393,9 +404,10 @@ mvn test -Dtest=InterviewControllerTest
 3. ✅ **查询详情**: `GET /api/interview/sessions/{id}`
 4. ✅ **参数校验**: 所有接口都有完整的参数校验
 5. ✅ **错误处理**: 统一的错误响应格式
-6. ✅ **集成测试**: 22 个测试用例全部通过
+6. ✅ **集成测试**: 25 个测试用例全部通过
 7. ✅ **自动追问**: `POST /api/interview/sessions/{id}/next-question`
 8. ✅ **自动追问（SSE）**: `GET /api/interview/sessions/{id}/next-question/stream`
 9. ✅ **结束会话**: `POST /api/interview/sessions/{id}/end`
 10. ✅ **阶段推进**: `POST /api/interview/sessions/{id}/stage/next`
-11. ✅ **生成/查询报告**: `POST /api/interview/sessions/{id}/report` / `GET /api/interview/sessions/{id}/report`
+11. ✅ **阶段小结**: `POST /api/interview/sessions/{id}/stage/next`
+12. ✅ **生成/查询报告**: `POST /api/interview/sessions/{id}/report` / `GET /api/interview/sessions/{id}/report`

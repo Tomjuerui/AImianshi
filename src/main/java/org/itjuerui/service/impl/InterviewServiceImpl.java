@@ -24,6 +24,7 @@ import org.itjuerui.infra.repo.InterviewSessionMapper;
 import org.itjuerui.infra.repo.InterviewTurnMapper;
 import org.itjuerui.service.InterviewAiService;
 import org.itjuerui.service.InterviewService;
+import org.itjuerui.service.ReportService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -42,6 +43,7 @@ public class InterviewServiceImpl implements InterviewService {
     private final InterviewSessionMapper sessionMapper;
     private final InterviewTurnMapper turnMapper;
     private final InterviewAiService interviewAiService;
+    private final ReportService reportService;
 
     @Override
     @Transactional
@@ -82,6 +84,9 @@ public class InterviewServiceImpl implements InterviewService {
         turn.setSessionId(sessionId);
         turn.setRole(role);
         turn.setContentText(request.getContent());
+        if (session.getCurrentStage() != null) {
+            turn.setStageCode(session.getCurrentStage().name());
+        }
         turn.setCreatedAt(LocalDateTime.now());
 
         turnMapper.insert(turn);
@@ -218,6 +223,7 @@ public class InterviewServiceImpl implements InterviewService {
         if (currentIndex < 0) {
             session.setCurrentStage(InterviewStage.valueOf(stages.get(0).getCode()));
         } else if (currentIndex + 1 < stages.size()) {
+            reportService.generateStageMiniReport(sessionId, session.getCurrentStage());
             session.setCurrentStage(InterviewStage.valueOf(stages.get(currentIndex + 1).getCode()));
         }
 

@@ -13,7 +13,9 @@ import org.itjuerui.domain.interview.enums.InterviewStage;
 import org.itjuerui.domain.interview.enums.SessionStatus;
 import org.itjuerui.domain.interview.enums.TurnRole;
 import org.itjuerui.domain.report.entity.Report;
+import org.itjuerui.domain.report.entity.StageMiniReport;
 import org.itjuerui.infra.llm.LlmService;
+import org.itjuerui.infra.repo.StageMiniReportMapper;
 import org.itjuerui.infra.llm.dto.Message;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -53,6 +55,8 @@ class InterviewControllerTest {
     @Autowired
     private ReportAiProperties reportAiProperties;
 
+    @Autowired
+    private StageMiniReportMapper stageMiniReportMapper;
     @Test
     void testCreateSession_Success() throws Exception {
         InterviewCreateRequest request = new InterviewCreateRequest();
@@ -462,6 +466,59 @@ class InterviewControllerTest {
         );
 
         assertEquals(InterviewStage.PROJECT, advanceResponse.getData().getCurrentStage());
+    }
+
+
+    @Test
+    void testAdvanceStage_GeneratesStageMiniReport() throws Exception {
+        Long sessionId = createSessionWithStageTurns();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/stage/next", sessionId))
+                .andExpect(status().isOk());
+
+        StageMiniReport report = stageMiniReportMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<StageMiniReport>()
+                        .eq(StageMiniReport::getSessionId, sessionId)
+                        .eq(StageMiniReport::getStageCode, InterviewStage.BASICS.name())
+        );
+        assertNotNull(report);
+        assertNotNull(report.getSummary());
+    }
+
+
+    @Test
+    void testStageMiniReport_OnlyCountsStageTurns() throws Exception {
+        Long sessionId = createSessionWithStageTurns();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/stage/next", sessionId))
+                .andExpect(status().isOk());
+
+        TurnRequest candidateProject = new TurnRequest();
+        candidateProject.setContent("我在项目阶段负责服务拆分与性能优化。");
+        candidateProject.setRole("CANDIDATE");
+        mockMvc.perform(post("/api/interview/sessions/{id}/turns", sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(candidateProject)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/stage/next", sessionId))
+                .andExpect(status().isOk());
+
+        StageMiniReport basicsReport = stageMiniReportMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<StageMiniReport>()
+                        .eq(StageMiniReport::getSessionId, sessionId)
+                        .eq(StageMiniReport::getStageCode, InterviewStage.BASICS.name())
+        );
+        StageMiniReport projectReport = stageMiniReportMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<StageMiniReport>()
+                        .eq(StageMiniReport::getSessionId, sessionId)
+                        .eq(StageMiniReport::getStageCode, InterviewStage.PROJECT.name())
+        );
+
+        assertNotNull(basicsReport);
+        assertNotNull(projectReport);
+        assertTrue(basicsReport.getSummary().contains("回答1次"));
+        assertTrue(projectReport.getSummary().contains("回答1次"));
     }
 
 
@@ -894,6 +951,33 @@ class InterviewControllerTest {
 
 
     @Test
+    void testGenerateReport_IncludesStageMiniReports() throws Exception {
+        Long sessionId = createSessionWithStageTurns();
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/stage/next", sessionId))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/interview/sessions/{id}/end", sessionId))
+                .andExpect(status().isOk());
+
+        MvcResult reportResult = mockMvc.perform(post("/api/interview/sessions/{id}/report", sessionId))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String reportBody = reportResult.getResponse().getContentAsString();
+        ApiResponse<Report> reportResponse = JSON.parseObject(
+                reportBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Report>>() {}
+        );
+
+        Report report = reportResponse.getData();
+        assertNotNull(report.getStageReports());
+        assertFalse(report.getStageReports().isEmpty());
+        assertTrue(report.getSummary().contains("分阶段评价"));
+    }
+
+
+    @Test
     void testGenerateReport_WhenSessionNotEnded_Fails() throws Exception {
         Long sessionId = createSessionWithTurns();
 
@@ -1054,6 +1138,36 @@ class InterviewControllerTest {
 
         TurnRequest candidate = new TurnRequest();
         candidate.setContent("我负责过订单系统的性能优化，主要进行了索引调整和缓存策略优化。");
+        candidate.setRole("CANDIDATE");
+        mockMvc.perform(post("/api/interview/sessions/{id}/turns", sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(candidate)))
+                .andExpect(status().isOk());
+
+        return sessionId;
+    }
+
+
+    private Long createSessionWithStageTurns() throws Exception {
+        InterviewCreateRequest createRequest = new InterviewCreateRequest();
+        createRequest.setResumeId(1L);
+        createRequest.setDurationMinutes(30);
+
+        MvcResult createResult = mockMvc.perform(post("/api/interview/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.toJSONString(createRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String createResponseBody = createResult.getResponse().getContentAsString();
+        ApiResponse<Long> createResponse = JSON.parseObject(
+                createResponseBody,
+                new com.alibaba.fastjson2.TypeReference<ApiResponse<Long>>() {}
+        );
+        Long sessionId = createResponse.getData();
+
+        TurnRequest candidate = new TurnRequest();
+        candidate.setContent("我熟悉Java基础与常见集合框架。");
         candidate.setRole("CANDIDATE");
         mockMvc.perform(post("/api/interview/sessions/{id}/turns", sessionId)
                         .contentType(MediaType.APPLICATION_JSON)

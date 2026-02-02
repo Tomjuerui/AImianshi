@@ -19,6 +19,7 @@ public class InterviewTurn {
     private Long sessionId;
     private TurnRole role;
     private String contentText;
+    private String stageCode;
     private String audioUrl;
     private String tokenUsage;
     private LocalDateTime createdAt;
